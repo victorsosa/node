@@ -1,5 +1,5 @@
 'use strict';
-var common = require('../common');
+require('../common');
 var assert = require('assert');
 var path = require('path');
 var fs = require('fs');
@@ -33,25 +33,25 @@ var d4 = require('../fixtures/b/d');
 
 assert.equal(false, false, 'testing the test program.');
 
-assert.equal(true, common.indirectInstanceOf(a.A, Function));
+assert.ok(a.A instanceof Function);
 assert.equal('A', a.A());
 
-assert.equal(true, common.indirectInstanceOf(a.C, Function));
+assert.ok(a.C instanceof Function);
 assert.equal('C', a.C());
 
-assert.equal(true, common.indirectInstanceOf(a.D, Function));
+assert.ok(a.D instanceof Function);
 assert.equal('D', a.D());
 
-assert.equal(true, common.indirectInstanceOf(d.D, Function));
+assert.ok(d.D instanceof Function);
 assert.equal('D', d.D());
 
-assert.equal(true, common.indirectInstanceOf(d2.D, Function));
+assert.ok(d2.D instanceof Function);
 assert.equal('D', d2.D());
 
-assert.equal(true, common.indirectInstanceOf(d3.D, Function));
+assert.ok(d3.D instanceof Function);
 assert.equal('D', d3.D());
 
-assert.equal(true, common.indirectInstanceOf(d4.D, Function));
+assert.ok(d4.D instanceof Function);
 assert.equal('D', d4.D());
 
 assert.ok((new a.SomeClass()) instanceof c.SomeClass);
@@ -88,7 +88,7 @@ require('../fixtures/node_modules/foo');
 console.error('test name clashes');
 // this one exists and should import the local module
 var my_path = require('../fixtures/path');
-assert.ok(common.indirectInstanceOf(my_path.path_func, Function));
+assert.ok(my_path.path_func instanceof Function);
 // this one does not exist and should throw
 assert.throws(function() { require('./utils'); });
 
@@ -172,7 +172,7 @@ assert.equal(child.loaded, parent.loaded);
 
 // #1357 Loading JSON files with require()
 var json = require('../fixtures/packages/main/package.json');
-assert.deepEqual(json, {
+assert.deepStrictEqual(json, {
   name: 'package-name',
   version: '1.2.3',
   main: 'package-main-module'
@@ -190,7 +190,7 @@ var children = module.children.reduce(function red(set, child) {
   return set;
 }, {});
 
-assert.deepEqual(children, {
+assert.deepStrictEqual(children, {
   'common.js': {},
   'fixtures/not-main-module.js': {},
   'fixtures/a.js': {
@@ -247,27 +247,27 @@ assert.deepEqual(children, {
 assert.throws(function() {
   console.error('require non-string');
   require({ foo: 'bar' });
-}, 'path must be a string');
+}, /path must be a string/);
 
 assert.throws(function() {
   console.error('require empty string');
   require('');
-}, 'missing path');
+}, /missing path/);
 
 process.on('exit', function() {
-  assert.ok(common.indirectInstanceOf(a.A, Function));
+  assert.ok(a.A instanceof Function);
   assert.equal('A done', a.A());
 
-  assert.ok(common.indirectInstanceOf(a.C, Function));
+  assert.ok(a.C instanceof Function);
   assert.equal('C done', a.C());
 
-  assert.ok(common.indirectInstanceOf(a.D, Function));
+  assert.ok(a.D instanceof Function);
   assert.equal('D done', a.D());
 
-  assert.ok(common.indirectInstanceOf(d.D, Function));
+  assert.ok(d.D instanceof Function);
   assert.equal('D done', d.D());
 
-  assert.ok(common.indirectInstanceOf(d2.D, Function));
+  assert.ok(d2.D instanceof Function);
   assert.equal('D done', d2.D());
 
   assert.equal(true, errorThrown);

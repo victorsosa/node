@@ -57,8 +57,14 @@ function rmdirSync(p, originalEr) {
     if (e.code === 'ENOTDIR')
       throw originalEr;
     if (e.code === 'ENOTEMPTY' || e.code === 'EEXIST' || e.code === 'EPERM') {
-      fs.readdirSync(p).forEach(function(f) {
-        rimrafSync(path.join(p, f));
+      const enc = process.platform === 'linux' ? 'buffer' : 'utf8';
+      fs.readdirSync(p, enc).forEach((f) => {
+        if (f instanceof Buffer) {
+          const buf = Buffer.concat([Buffer.from(p), Buffer.from(path.sep), f]);
+          rimrafSync(buf);
+        } else {
+          rimrafSync(path.join(p, f));
+        }
       });
       fs.rmdirSync(p);
     }
@@ -80,18 +86,21 @@ var opensslCli = null;
 var inFreeBSDJail = null;
 var localhostIPv4 = null;
 
-exports.localIPv6Hosts = [
-  // Debian/Ubuntu
-  'ip6-localhost',
-  'ip6-loopback',
+exports.localIPv6Hosts = ['localhost'];
+if (process.platform === 'linux') {
+  exports.localIPv6Hosts = [
+    // Debian/Ubuntu
+    'ip6-localhost',
+    'ip6-loopback',
 
-  // SUSE
-  'ipv6-localhost',
-  'ipv6-loopback',
+    // SUSE
+    'ipv6-localhost',
+    'ipv6-loopback',
 
-  // Typically universal
-  'localhost',
-];
+    // Typically universal
+    'localhost',
+  ];
+}
 
 Object.defineProperty(exports, 'inFreeBSDJail', {
   get: function() {
@@ -161,7 +170,7 @@ Object.defineProperty(exports, 'hasCrypto', {
 
 Object.defineProperty(exports, 'hasFipsCrypto', {
   get: function() {
-    return process.config.variables.openssl_fips ? true : false;
+    return exports.hasCrypto && require('crypto').fips;
   }
 });
 
@@ -187,19 +196,6 @@ exports.hasIPv6 = Object.keys(ifaces).some(function(name) {
     return info.family === 'IPv6';
   });
 });
-
-function protoCtrChain(o) {
-  var result = [];
-  for (; o; o = o.__proto__) { result.push(o.constructor); }
-  return result.join();
-}
-
-exports.indirectInstanceOf = function(obj, cls) {
-  if (obj instanceof cls) { return true; }
-  var clsChain = protoCtrChain(cls.prototype);
-  var objChain = protoCtrChain(obj);
-  return objChain.slice(-clsChain.length) === clsChain;
-};
 
 
 exports.ddCommand = function(filename, kilobytes) {
@@ -249,6 +245,9 @@ exports.platformTimeout = function(ms) {
   if (process.config.target_defaults.default_configuration === 'Debug')
     ms = 2 * ms;
 
+  if (exports.isAix)
+    return 2 * ms; // default localhost speed is slower on AIX
+
   if (process.arch !== 'arm')
     return ms;
 
@@ -276,7 +275,7 @@ var knownGlobals = [setTimeout,
                     global];
 
 if (global.gc) {
-  knownGlobals.push(gc);
+  knownGlobals.push(global.gc);
 }
 
 if (global.DTRACE_HTTP_SERVER_RESPONSE) {
@@ -470,7 +469,7 @@ exports.fail = function(msg) {
 // A stream to push an array into a REPL
 function ArrayStream() {
   this.run = function(data) {
-    data.forEach(line => {
+    data.forEach((line) => {
       this.emit('data', line + '\n');
     });
   };

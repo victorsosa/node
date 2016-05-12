@@ -25,9 +25,6 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-// TODO(jochen): Remove this after the setting is turned on globally.
-#define V8_IMMINENT_DEPRECATION_WARNINGS
-
 #include <stdlib.h>
 
 #include "src/v8.h"
@@ -689,9 +686,9 @@ THREADED_TEST(Regress433458) {
 
 static bool security_check_value = false;
 
-
 static bool SecurityTestCallback(Local<v8::Context> accessing_context,
-                                 Local<v8::Object> accessed_object) {
+                                 Local<v8::Object> accessed_object,
+                                 Local<v8::Value> data) {
   return security_check_value;
 }
 

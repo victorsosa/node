@@ -13,14 +13,14 @@ var conns = 0;
 var clientLocalPorts = [];
 var serverRemotePorts = [];
 const client = new net.Socket();
-const server = net.createServer(socket => {
+const server = net.createServer((socket) => {
   serverRemotePorts.push(socket.remotePort);
   socket.end();
 });
 
 server.on('close', common.mustCall(() => {
-  assert.deepEqual(clientLocalPorts, serverRemotePorts,
-                   'client and server should agree on the ports used');
+  assert.deepStrictEqual(clientLocalPorts, serverRemotePorts,
+                         'client and server should agree on the ports used');
   assert.strictEqual(2, conns);
 }));
 

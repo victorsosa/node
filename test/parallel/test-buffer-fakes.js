@@ -5,13 +5,13 @@ const assert = require('assert');
 const Buffer = require('buffer').Buffer;
 
 function FakeBuffer() { }
-FakeBuffer.__proto__ = Buffer;
-FakeBuffer.prototype.__proto__ = Buffer.prototype;
+Object.setPrototypeOf(FakeBuffer, Buffer);
+Object.setPrototypeOf(FakeBuffer.prototype, Buffer.prototype);
 
 const fb = new FakeBuffer();
 
 assert.throws(function() {
-  new Buffer(fb);
+  Buffer.from(fb);
 }, TypeError);
 
 assert.throws(function() {
@@ -19,7 +19,7 @@ assert.throws(function() {
 }, TypeError);
 
 assert.throws(function() {
-  Buffer.compare(fb, new Buffer(0));
+  Buffer.compare(fb, Buffer.alloc(0));
 }, TypeError);
 
 assert.throws(function() {
@@ -35,7 +35,7 @@ assert.throws(function() {
 }, TypeError);
 
 assert.throws(function() {
-  fb.equals(new Buffer(0));
+  fb.equals(Buffer.alloc(0));
 }, TypeError);
 
 assert.throws(function() {

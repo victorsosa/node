@@ -2,12 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// TODO(jochen): Remove this after the setting is turned on globally.
-#define V8_IMMINENT_DEPRECATION_WARNINGS
-
 #include "src/code-stubs.h"
 #include "src/compiler.h"
-#include "src/parser.h"
+#include "src/parsing/parser.h"
 #include "src/zone.h"
 
 #include "src/compiler/common-operator.h"
@@ -74,20 +71,6 @@ TEST(TestLinkageJSFunctionIncoming) {
 }
 
 
-TEST(TestLinkageCodeStubIncoming) {
-  Isolate* isolate = CcTest::InitIsolateOnce();
-  Zone zone;
-  ToNumberStub stub(isolate);
-  CompilationInfo info(&stub, isolate, &zone);
-  CallDescriptor* descriptor = Linkage::ComputeIncoming(&zone, &info);
-  CHECK(descriptor);
-  CHECK_EQ(0, static_cast<int>(descriptor->StackParameterCount()));
-  CHECK_EQ(1, static_cast<int>(descriptor->ReturnCount()));
-  CHECK_EQ(Operator::kNoProperties, descriptor->properties());
-  CHECK_EQ(false, descriptor->IsJSFunctionCall());
-}
-
-
 TEST(TestLinkageJSCall) {
   HandleAndZoneScope handles;
   Handle<JSFunction> function = Compile("a + c");
@@ -112,6 +95,20 @@ TEST(TestLinkageRuntimeCall) {
 
 
 TEST(TestLinkageStubCall) {
+  Isolate* isolate = CcTest::InitIsolateOnce();
+  Zone zone;
+  ToNumberStub stub(isolate);
+  CompilationInfo info("test", isolate, &zone, Code::ComputeFlags(Code::STUB));
+  CallInterfaceDescriptor interface_descriptor =
+      stub.GetCallInterfaceDescriptor();
+  CallDescriptor* descriptor = Linkage::GetStubCallDescriptor(
+      isolate, &zone, interface_descriptor, stub.GetStackParameterCount(),
+      CallDescriptor::kNoFlags, Operator::kNoProperties);
+  CHECK(descriptor);
+  CHECK_EQ(0, static_cast<int>(descriptor->StackParameterCount()));
+  CHECK_EQ(1, static_cast<int>(descriptor->ReturnCount()));
+  CHECK_EQ(Operator::kNoProperties, descriptor->properties());
+  CHECK_EQ(false, descriptor->IsJSFunctionCall());
   // TODO(titzer): test linkage creation for outgoing stub calls.
 }
 

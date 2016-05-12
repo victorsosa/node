@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
-// Flags: --harmony-destructuring
-// Flags: --harmony-default-parameters --harmony-rest-parameters
+// Flags: --harmony-destructuring-bind
+// Flags: --harmony-default-parameters
 
 (function TestObjectLiteralPattern() {
   var { x : x, y : y, get, set } = { x : 1, y : 2, get: 3, set: 4 };
@@ -260,6 +260,63 @@
   var { x = f(42) } = {};
   assertSame(42, x);
   assertEquals(1, callCount);
+}());
+
+
+(function TestAssignmentExprInInitializers() {
+  {
+    let x, y;
+    {
+      let { x = y = 1 } = {};
+      assertSame(x, 1);
+      assertSame(y, 1);
+    }
+    assertSame(undefined, x);
+    assertSame(1, y);
+  }
+
+  {
+    let x, y;
+    {
+      let { x: x = y = 1 } = {};
+      assertSame(1, x);
+      assertSame(1, y);
+    }
+    assertSame(undefined, x);
+    assertSame(1, y);
+  }
+
+  {
+    let x, y;
+    {
+      let [ x = y = 1 ] = [];
+      assertSame(1, x);
+      assertSame(1, y);
+    }
+    assertSame(undefined, x);
+    assertSame(1, y);
+  }
+
+  {
+    let x, y;
+    (function({ x = y = 1 }) {}({}));
+    assertSame(undefined, x);
+    assertSame(1, y);
+  }
+
+  {
+    let x, y;
+    (function({ x: x = y = 1 }) {}({}));
+    assertSame(undefined, x);
+    assertSame(1, y);
+  }
+
+  {
+    let x, y;
+    (function([ x = y = 1 ]) {}([]));
+    assertSame(undefined, x);
+    assertSame(1, y);
+  }
 }());
 
 
@@ -991,8 +1048,9 @@
 
   function f20({x}) { function x() { return 2 }; return x(); }
   assertEquals(2, f20({x: 1}));
+  // Function hoisting is blocked by the conflicting x declaration
   function f21({x}) { { function x() { return 2 } } return x(); }
-  assertEquals(2, f21({x: 1}));
+  assertThrows(() => f21({x: 1}), TypeError);
 
   var g1 = ({x}) => { var x = 2; return x };
   assertEquals(2, g1({x: 1}));
@@ -1025,7 +1083,7 @@
   var g20 = ({x}) => { function x() { return 2 }; return x(); }
   assertEquals(2, g20({x: 1}));
   var g21 = ({x}) => { { function x() { return 2 } } return x(); }
-  assertEquals(2, g21({x: 1}));
+  assertThrows(() => g21({x: 1}), TypeError);
 
   assertThrows("'use strict'; function f(x) { let x = 0; }; f({});", SyntaxError);
   assertThrows("'use strict'; function f({x}) { let x = 0; }; f({});", SyntaxError);
@@ -1060,8 +1118,8 @@
 
 
 (function TestForInOfTDZ() {
-  assertThrows("'use strict'; let x = {}; for (let [x, y] of {x});", ReferenceError);
-  assertThrows("'use strict'; let x = {}; for (let [y, x] of {x});", ReferenceError);
+  assertThrows("'use strict'; let x = {}; for (let [x, y] of [x]);", ReferenceError);
+  assertThrows("'use strict'; let x = {}; for (let [y, x] of [x]);", ReferenceError);
   assertThrows("'use strict'; let x = {}; for (let [x, y] in {x});", ReferenceError);
   assertThrows("'use strict'; let x = {}; for (let [y, x] in {x});", ReferenceError);
 }());

@@ -35,6 +35,8 @@
   'dfg-inline-arguments-reset-changetype': [PASS, FAIL],
   # TODO(turbofan): We run out of stack earlier on 64-bit for now.
   'fast/js/deep-recursion-test': [PASS, NO_VARIANTS],
+  # Irregexp interpreter overflows stack. We should just not crash.
+  'fast/js/regexp-stack-overflow': [PASS, FAIL],
 }],  # ALWAYS
 ['mode == debug', {
   # Too slow in debug mode.
@@ -93,6 +95,13 @@
 ['gc_stress == True and mode == debug', {
   # Skip tests that timeout.
 }],  # 'gc_stress == True and mode == debug'
+
+##############################################################################
+['gcov_coverage', {
+  # Tests taking too long or getting too large call stacks.
+  'fast/js/excessive-comma-usage': [SKIP],
+  'run-json-stringify': [SKIP],
+}],  # 'gcov_coverage'
 
 ##############################################################################
 ]

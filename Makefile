@@ -8,15 +8,36 @@ PREFIX ?= /usr/local
 FLAKY_TESTS ?= run
 TEST_CI_ARGS ?=
 STAGINGSERVER ?= node-www
-
 OSTYPE := $(shell uname -s | tr '[A-Z]' '[a-z]')
+
+ifdef JOBS
+  PARALLEL_ARGS = -j $(JOBS)
+endif
+
+ifdef QUICKCHECK
+  QUICKCHECK_ARG := --quickcheck
+endif
+
+ifdef ENABLE_V8_TAP
+  TAP_V8 := --junitout v8-tap.xml
+  TAP_V8_INTL := --junitout v8-intl-tap.xml
+  TAP_V8_BENCHMARKS := --junitout v8-benchmarks-tap.xml
+endif
+
+V8_TEST_OPTIONS = $(V8_EXTRA_TEST_OPTIONS)
+ifdef DISABLE_V8_I18N
+  V8_TEST_OPTIONS += --noi18n
+  V8_BUILD_OPTIONS += i18nsupport=off
+endif
+
+BUILDTYPE_LOWER := $(shell echo $(BUILDTYPE) | tr '[A-Z]' '[a-z]')
 
 # Determine EXEEXT
 EXEEXT := $(shell $(PYTHON) -c \
 		"import sys; print('.exe' if sys.platform == 'win32' else '')")
 
-NODE ?= ./node$(EXEEXT)
 NODE_EXE = node$(EXEEXT)
+NODE ?= ./$(NODE_EXE)
 NODE_G_EXE = node_g$(EXEEXT)
 
 # Flags for packaging.
@@ -81,16 +102,22 @@ distclean:
 	-rm -rf deps/icu
 	-rm -rf deps/icu4c*.tgz deps/icu4c*.zip deps/icu-tmp
 	-rm -f $(BINARYTAR).* $(TARBALL).*
+	-rm -rf deps/v8/testing/gmock
+	-rm -rf deps/v8/testing/gtest
 
 check: test
 
 cctest: all
 	@out/$(BUILDTYPE)/$@
 
-test: | cctest  # Depends on 'all'.
-	$(PYTHON) tools/test.py --mode=release message parallel sequential -J
-	$(MAKE) jslint
-	$(MAKE) cpplint
+v8:
+	tools/make-v8.sh v8
+	$(MAKE) -C deps/v8 $(V8_ARCH) $(V8_BUILD_OPTIONS)
+
+test: | build-addons cctest  # Both targets depend on 'all'.
+	$(PYTHON) tools/test.py --mode=release -J \
+		addon doctool known_issues message parallel sequential
+	$(MAKE) lint
 
 test-parallel: all
 	$(PYTHON) tools/test.py --mode=release parallel -J
@@ -104,9 +131,9 @@ test/gc/node_modules/weak/build/Release/weakref.node: $(NODE_EXE)
 		--nodedir="$(shell pwd)"
 
 # Implicitly depends on $(NODE_EXE), see the build-addons rule for rationale.
-test/addons/.docbuildstamp: doc/api/addons.markdown
+test/addons/.docbuildstamp: tools/doc/addon-verify.js doc/api/addons.md
 	$(RM) -r test/addons/??_*/
-	$(NODE) tools/doc/addon-verify.js
+	$(NODE) $<
 	touch $@
 
 ADDONS_BINDING_GYPS := \
@@ -114,13 +141,16 @@ ADDONS_BINDING_GYPS := \
 		$(wildcard test/addons/*/binding.gyp))
 
 # Implicitly depends on $(NODE_EXE), see the build-addons rule for rationale.
-test/addons/.buildstamp: $(ADDONS_BINDING_GYPS) | test/addons/.docbuildstamp
+test/addons/.buildstamp: $(ADDONS_BINDING_GYPS) \
+	deps/uv/include/*.h deps/v8/include/*.h \
+	src/node.h src/node_buffer.h src/node_object_wrap.h \
+	test/addons/.docbuildstamp
 	# Cannot use $(wildcard test/addons/*/) here, it's evaluated before
 	# embedded addons have been generated from the documentation.
 	for dirname in test/addons/*/; do \
 		$(NODE) deps/npm/node_modules/node-gyp/bin/node-gyp rebuild \
 			--directory="$$PWD/$$dirname" \
-			--nodedir="$$PWD"; \
+			--nodedir="$$PWD" || exit 1 ; \
 	done
 	touch $@
 
@@ -144,8 +174,9 @@ test-all-valgrind: test-build
 	$(PYTHON) tools/test.py --mode=debug,release --valgrind
 
 test-ci: | build-addons
-	$(PYTHON) tools/test.py -p tap --logfile test.tap --mode=release --flaky-tests=$(FLAKY_TESTS) \
-		$(TEST_CI_ARGS) addons message parallel sequential
+	$(PYTHON) tools/test.py $(PARALLEL_ARGS) -p tap --logfile test.tap \
+		--mode=release --flaky-tests=$(FLAKY_TESTS) \
+		$(TEST_CI_ARGS) addons doctool known_issues message parallel sequential
 
 test-release: test-build
 	$(PYTHON) tools/test.py --mode=release
@@ -168,6 +199,9 @@ test-internet: all
 test-debugger: all
 	$(PYTHON) tools/test.py debugger
 
+test-known-issues: all
+	$(PYTHON) tools/test.py known_issues
+
 test-npm: $(NODE_EXE)
 	NODE=$(NODE) tools/test-npm.sh
 
@@ -184,15 +218,49 @@ test-timers:
 test-timers-clean:
 	$(MAKE) --directory=tools clean
 
-apidoc_sources = $(wildcard doc/api/*.markdown)
-apidocs = $(addprefix out/,$(apidoc_sources:.markdown=.html)) \
-		$(addprefix out/,$(apidoc_sources:.markdown=.json))
+
+ifneq ("","$(wildcard deps/v8/tools/run-tests.py)")
+test-v8:
+	# note: performs full test unless QUICKCHECK is specified
+	deps/v8/tools/run-tests.py --arch=$(V8_ARCH) \
+        --mode=$(BUILDTYPE_LOWER) $(V8_TEST_OPTIONS) $(QUICKCHECK_ARG) \
+        --no-presubmit \
+        --shell-dir=$(PWD)/deps/v8/out/$(V8_ARCH).$(BUILDTYPE_LOWER) \
+	 $(TAP_V8)
+
+test-v8-intl:
+	# note: performs full test unless QUICKCHECK is specified
+	deps/v8/tools/run-tests.py --arch=$(V8_ARCH) \
+        --mode=$(BUILDTYPE_LOWER) --no-presubmit $(QUICKCHECK_ARG) \
+        --shell-dir=deps/v8/out/$(V8_ARCH).$(BUILDTYPE_LOWER) intl \
+        $(TAP_V8_INTL)
+
+test-v8-benchmarks:
+	deps/v8/tools/run-tests.py --arch=$(V8_ARCH) --mode=$(BUILDTYPE_LOWER) \
+        --download-data $(QUICKCHECK_ARG) --no-presubmit \
+        --shell-dir=deps/v8/out/$(V8_ARCH).$(BUILDTYPE_LOWER) benchmarks \
+	 $(TAP_V8_BENCHMARKS)
+
+test-v8-all: test-v8 test-v8-intl test-v8-benchmarks
+	# runs all v8 tests
+else
+test-v8 test-v8-intl test-v8-benchmarks test-v8-all:
+	@echo "Testing v8 is not available through the source tarball."
+	@echo "Use the git repo instead:" \
+		"$ git clone https://github.com/nodejs/node.git"
+endif
+
+apidoc_sources = $(wildcard doc/api/*.md)
+apidocs = $(addprefix out/,$(apidoc_sources:.md=.html)) \
+		$(addprefix out/,$(apidoc_sources:.md=.json))
 
 apidoc_dirs = out/doc out/doc/api/ out/doc/api/assets
 
 apiassets = $(subst api_assets,api/assets,$(addprefix out/,$(wildcard doc/api_assets/*)))
 
-doc: $(apidoc_dirs) $(apiassets) $(apidocs) tools/doc/ $(NODE_EXE)
+doc-only: $(apidoc_dirs) $(apiassets) $(apidocs) tools/doc/
+
+doc: $(NODE_EXE) doc-only
 
 $(apidoc_dirs):
 	mkdir -p $@
@@ -203,11 +271,11 @@ out/doc/api/assets/%: doc/api_assets/% out/doc/api/assets/
 out/doc/%: doc/%
 	cp -r $< $@
 
-out/doc/api/%.json: doc/api/%.markdown $(NODE_EXE)
+out/doc/api/%.json: doc/api/%.md
 	$(NODE) tools/doc/generate.js --format=json $< > $@
 
-out/doc/api/%.html: doc/api/%.markdown $(NODE_EXE)
-	$(NODE) tools/doc/generate.js --format=html --template=doc/template.html $< > $@
+out/doc/api/%.html: doc/api/%.md
+	$(NODE) tools/doc/generate.js --node-version=$(FULLVERSION) --format=html --template=doc/template.html $< > $@
 
 docopen: out/doc/api/all.html
 	-google-chrome out/doc/api/all.html
@@ -272,16 +340,37 @@ else
 ifeq ($(DESTCPU),arm)
 ARCH=arm
 else
+ifeq ($(DESTCPU),aarch64)
+ARCH=arm64
+else
 ifeq ($(DESTCPU),ppc64)
 ARCH=ppc64
 else
 ifeq ($(DESTCPU),ppc)
 ARCH=ppc
 else
+ifeq ($(DESTCPU),s390)
+ARCH=s390
+else
+ifeq ($(DESTCPU),s390x)
+ARCH=s390x
+else
 ARCH=x86
 endif
 endif
 endif
+endif
+endif
+endif
+endif
+
+# node and v8 use different arch names (e.g. node 'x86' vs v8 'ia32').
+# pass the proper v8 arch name to $V8_ARCH based on user-specified $DESTCPU.
+ifeq ($(DESTCPU),x86)
+V8_ARCH=ia32
+else
+V8_ARCH ?= $(DESTCPU)
+
 endif
 
 # enforce "x86" over "ia32" as the generally accepted way of referring to 32-bit intel
@@ -363,11 +452,16 @@ $(TARBALL): release-only $(NODE_EXE) doc
 	mkdir -p $(TARNAME)/doc/api
 	cp doc/node.1 $(TARNAME)/doc/node.1
 	cp -r out/doc/api/* $(TARNAME)/doc/api/
-	rm -rf $(TARNAME)/deps/v8/{test,samples,tools/profviz} # too big
+	rm -rf $(TARNAME)/deps/v8/{test,samples,tools/profviz,tools/run-tests.py}
 	rm -rf $(TARNAME)/doc/images # too big
 	rm -rf $(TARNAME)/deps/uv/{docs,samples,test}
-	rm -rf $(TARNAME)/deps/openssl/{doc,demos,test}
+	rm -rf $(TARNAME)/deps/openssl/openssl/{doc,demos,test}
 	rm -rf $(TARNAME)/deps/zlib/contrib # too big, unused
+	rm -rf $(TARNAME)/.{editorconfig,git*,mailmap}
+	rm -rf $(TARNAME)/tools/{eslint,eslint-rules,osx-pkg.pmdoc,pkgsrc}
+	rm -rf $(TARNAME)/tools/{osx-*,license-builder.sh,cpplint.py}
+	rm -rf $(TARNAME)/test*.tap
+	find $(TARNAME)/ -name ".eslint*" -maxdepth 2 | xargs rm
 	find $(TARNAME)/ -type l | xargs rm # annoying on windows
 	tar -cf $(TARNAME).tar $(TARNAME)
 	rm -rf $(TARNAME)
@@ -396,7 +490,7 @@ doc-upload: tar
 	scp -pr out/doc/ $(STAGINGSERVER):nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/docs/
 	ssh $(STAGINGSERVER) "touch nodejs/$(DISTTYPEDIR)/$(FULLVERSION)/docs.done"
 
-$(TARBALL)-headers: config.gypi release-only
+$(TARBALL)-headers: release-only
 	$(PYTHON) ./configure \
 		--prefix=/ \
 		--dest-cpu=$(DESTCPU) \
@@ -404,7 +498,7 @@ $(TARBALL)-headers: config.gypi release-only
 		--release-urlbase=$(RELEASE_URLBASE) \
 		$(CONFIG_FLAGS) $(BUILD_RELEASE_FLAGS)
 	HEADERS_ONLY=1 $(PYTHON) tools/install.py install '$(TARNAME)' '/'
-	find $(TARNAME)/ -type l | xargs rm # annoying on windows
+	find $(TARNAME)/ -type l | xargs rm -f
 	tar -cf $(TARNAME)-headers.tar $(TARNAME)
 	rm -rf $(TARNAME)
 	gzip -c -f -9 $(TARNAME)-headers.tar > $(TARNAME)-headers.tar.gz
@@ -501,9 +595,14 @@ bench-events: all
 bench-util: all
 	@$(NODE) benchmark/common.js util
 
-bench-all: bench bench-misc bench-array bench-buffer bench-url bench-events
+bench-dgram: all
+	@$(NODE) benchmark/common.js dgram
+
+bench-all: bench bench-misc bench-array bench-buffer bench-url bench-events bench-dgram bench-util
 
 bench: bench-net bench-http bench-fs bench-tls
+
+bench-ci: bench
 
 bench-http-simple:
 	benchmark/http_simple_bench.sh
@@ -514,8 +613,13 @@ bench-idle:
 	$(NODE) benchmark/idle_clients.js &
 
 jslint:
-	$(NODE) tools/eslint/bin/eslint.js src lib test tools/eslint-rules \
-		--rulesdir tools/eslint-rules --quiet
+	$(NODE) tools/jslint.js -J benchmark lib src test tools/doc \
+	  tools/eslint-rules tools/jslint.js
+
+jslint-ci:
+	$(NODE) tools/jslint.js $(PARALLEL_ARGS) -f tap -o test-eslint.tap \
+		benchmark lib src test tools/doc \
+		tools/eslint-rules tools/jslint.js
 
 CPPLINT_EXCLUDE ?=
 CPPLINT_EXCLUDE += src/node_lttng.cc
@@ -541,12 +645,25 @@ CPPLINT_FILES = $(filter-out $(CPPLINT_EXCLUDE), $(wildcard \
 
 cpplint:
 	@$(PYTHON) tools/cpplint.py $(CPPLINT_FILES)
+	@$(PYTHON) tools/check-imports.py
 
+ifneq ("","$(wildcard tools/eslint/bin/eslint.js)")
 lint: jslint cpplint
+lint-ci: jslint-ci cpplint
+else
+lint:
+	@echo "Linting is not available through the source tarball."
+	@echo "Use the git repo instead:" \
+		"$ git clone https://github.com/nodejs/node.git"
+
+lint-ci: lint
+endif
 
 .PHONY: lint cpplint jslint bench clean docopen docclean doc dist distclean \
 	check uninstall install install-includes install-bin all staticlib \
 	dynamiclib test test-all test-addons build-addons website-upload pkg \
 	blog blogclean tar binary release-only bench-http-simple bench-idle \
 	bench-all bench bench-misc bench-array bench-buffer bench-net \
-	bench-http bench-fs bench-tls cctest run-ci
+	bench-http bench-fs bench-tls cctest run-ci test-v8 test-v8-intl \
+	test-v8-benchmarks test-v8-all v8 lint-ci bench-ci jslint-ci doc-only \
+	$(TARBALL)-headers

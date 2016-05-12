@@ -13,9 +13,9 @@ There are three relevant Jenkins jobs that should be used for a release flow:
 
 **a.** **Test runs:** **[node-test-pull-request](https://ci.nodejs.org/job/node-test-pull-request/)** is used for a final full-test run to ensure that the current *HEAD* is stable.
 
-**b.** **Nightly builds:** (optional) **[iojs+release](https://ci.nodejs.org/job/iojs+release/)** can be used to create a nightly release for the current *HEAD* if public test releases are required. Builds triggered with this job are published straight to <https://nodejs.org/download/nightly/> and are available for public download.
+**b.** **Nightly builds:** (optional) **[iojs+release](https://ci-release.nodejs.org/job/iojs+release/)** can be used to create a nightly release for the current *HEAD* if public test releases are required. Builds triggered with this job are published straight to <https://nodejs.org/download/nightly/> and are available for public download.
 
-**c.** **Release builds:** **[iojs+release](https://ci.nodejs.org/job/iojs+release/)** does all of the work to build all required release assets. Promotion of the release files is a manual step once they are ready (see below).
+**c.** **Release builds:** **[iojs+release](https://ci-release.nodejs.org/job/iojs+release/)** does all of the work to build all required release assets. Promotion of the release files is a manual step once they are ready (see below).
 
 The [Node.js build team](https://github.com/nodejs/build) is able to provide this access to individuals authorized by the TSC.
 
@@ -82,14 +82,16 @@ Set the `NODE_VERSION_IS_RELEASE` macro value to `1`. This causes the build to b
 
 This macro is used to signal an ABI version for native addons. It currently has two common uses in the community:
 
-* Determining what API to work against for compiling native addons, e.g. [NAN](https://github.com/rvagg/nan) uses it to form a compatibility-layer for much of what it wraps.
+* Determining what API to work against for compiling native addons, e.g. [NAN](https://github.com/nodejs/nan) uses it to form a compatibility-layer for much of what it wraps.
 * Determining the ABI for downloading pre-built binaries of native addons, e.g. [node-pre-gyp](https://github.com/mapbox/node-pre-gyp) uses this value as exposed via `process.versions.modules` to help determine the appropriate binary to download at install-time.
 
 The general rule is to bump this version when there are _breaking ABI_ changes and also if there are non-trivial API changes. The rules are not yet strictly defined, so if in doubt, please confer with someone that will have a more informed perspective, such as a member of the NAN team.
 
 **Note** that it is current TSC policy to bump major version when ABI changes. If you see a need to bump `NODE_MODULE_VERSION` then you should consult the TSC. Commits may need to be reverted or a major version bump may need to happen.
 
-### 3. Update `CHANGELOG.md`
+### 3. Update the Changelog
+
+#### Step 1: Collecting the formatted list of changes:
 
 Collect a formatted list of commits since the last release. Use [`changelog-maker`](https://github.com/rvagg/changelog-maker) to do this.
 
@@ -103,9 +105,20 @@ Note that changelog-maker counts commits since the last tag and if the last tag 
 $ changelog-maker --group --start-ref v2.3.1
 ```
 
-The `CHANGELOG.md` entry should take the following form:
+#### Step 2: Update the appropriate doc/changelogs/CHANGELOG_*.md file
+
+There is a separate `CHANGELOG_*.md` file for each major Node.js release line.
+These are located in the `doc/changelogs/` directory. Once the formatted list
+of changes is collected, it must be added to the top of the relevant changelog
+file in the release branch (e.g. a release for Node.js v4 would be added to the
+`/doc/changelogs/CHANGELOG_V4.md`).
+
+**Please do *not* add the changelog entries to the root `CHANGELOG.md` file.**
+
+The new entry should take the following form:
 
 ```
+<a id="x.y.x></a>"
 ## YYYY-MM-DD, Version x.y.z (Release Type), @releaser
 
 ### Notable changes
@@ -115,23 +128,28 @@ The `CHANGELOG.md` entry should take the following form:
 * Also be sure to look at any changes introduced by dependencies such as npm
 * ... and include any notable items from there
 
-### Known issues
-
-See https://github.com/nodejs/node/labels/confirmed-bug for complete and current list of known issues.
-
-* Include this section if there are any known problems with this release
-* Scan GitHub for unresolved problems that users may need to be aware of
-
 ### Commits
 
 * Include the full list of commits since the last release here. Do not include "Working on X.Y.Z+1" commits.
 ```
 
-The release type should be either Stable, LTS, or Maintenance, depending on the type of release being produced.
+The release type should be either Current, LTS, or Maintenance, depending on the type of release being produced.
+
+At the top of each `CHANGELOG_*.md` file, and in the root `CHANGELOG.md` file,
+there is a table indexing all releases in each major release line. A link to
+the new release needs to be added to each. Follow the existing examples and be
+sure to add the release to the *top* of the list.
+
+In the root `CHANGELOG.md` file, the most recent release for each release line
+is shown in **bold** in the index. When updating the index, please make sure
+to update the display accordingly by removing the bold styling from the previous
+release.
 
 ### 4. Create Release Commit
 
-The `CHANGELOG.md` and `src/node_version.h` changes should be the final commit that will be tagged for the release. When committing these to git, use the following message format:
+The `CHANGELOG.md`, `doc/changelogs/CHANGELOG_*.md`, and `src/node_version.h` 
+changes should be the final commit that will be tagged for the release. When 
+committing these to git, use the following message format:
 
 ```
 YYYY-MM-DD, Version x.y.z (Release Type)
@@ -159,13 +177,13 @@ Perform some smoke-testing. We have [citgm](https://github.com/nodejs/citgm) for
 
 ### 7. Produce a Nightly Build _(optional)_
 
-If there is a reason to produce a test release for the purpose of having others try out installers or specifics of builds, produce a nightly build using **[iojs+release](https://ci.nodejs.org/job/iojs+release/)** and wait for it to drop in <https://nodejs.org/download/nightly/>. Follow the directions and enter a proper length commit SHA, enter a date string, and select "nightly" for "disttype".
+If there is a reason to produce a test release for the purpose of having others try out installers or specifics of builds, produce a nightly build using **[iojs+release](https://ci-release.nodejs.org/job/iojs+release/)** and wait for it to drop in <https://nodejs.org/download/nightly/>. Follow the directions and enter a proper length commit SHA, enter a date string, and select "nightly" for "disttype".
 
 This is particularly recommended if there has been recent work relating to the OS X or Windows installers as they are not tested in any way by CI.
 
 ### 8. Produce Release Builds
 
-Use **[iojs+release](https://ci.nodejs.org/job/iojs+release/)** to produce release artifacts. Enter the commit that you want to build from and select "release" for "disttype".
+Use **[iojs+release](https://ci-release.nodejs.org/job/iojs+release/)** to produce release artifacts. Enter the commit that you want to build from and select "release" for "disttype".
 
 Artifacts from each slave are uploaded to Jenkins and are available if further testing is required. Use this opportunity particularly to test OS X and Windows installers if there are any concerns. Click through to the individual slaves for a run to find the artifacts.
 
@@ -187,7 +205,7 @@ Jenkins collects the artifacts from the builds, allowing you to download and ins
 
 Once you have produced builds that you're happy with, create a new tag. By waiting until this stage to create tags, you can discard a proposed release if something goes wrong or additional commits are required. Once you have created a tag and pushed it to GitHub, you ***should not*** delete and re-tag. If you make a mistake after tagging then you'll have to version-bump and start again and count that tag/version as lost.
 
-Tag summaries have a predictable format, look at a recent tag to see, `git tag -v v5.3.0`. The message should look something like `2015-12-16 Node.js v5.3.0 (Stable) Release`.
+Tag summaries have a predictable format, look at a recent tag to see, `git tag -v v6.0.0`. The message should look something like `2016-04-26 Node.js v6.0.0 (Current) Release`.
 
 Create a tag using the following command:
 
@@ -246,6 +264,8 @@ Use `tools/release.sh` to promote and sign the build. When run, it will perform 
 
 If you didn't wait for ARM builds in the previous step before promoting the release, you should re-run `tools/release.sh` after the ARM builds have finished. That will move the ARM artifacts into the correct location. You will be prompted to re-sign SHASUMS256.txt.
 
+Note: it is possible to only sign a release by running `./tools/release.sh -s vX.Y.Z`.
+
 ### 13. Check the Release
 
 Your release should be available at <https://nodejs.org/dist/vx.y.z/> and <https://nodejs.org/dist/latest/>. Check that the appropriate files are in place. You may want to check that the binaries are working as appropriate and have the right internal version strings. Check that the API docs are available at <https://nodejs.org/api/>. Check that the release catalog files are correct at <https://nodejs.org/dist/index.tab> and <https://nodejs.org/dist/index.json>.
@@ -266,7 +286,7 @@ Create a new blog post by running the [nodejs.org release-post.js script](https:
 
 The nodejs.org website will automatically rebuild and include the new version. You simply need to announce the build, preferably via Twitter with a message such as:
 
-> v5.3.0 of @nodejs is out @ https://nodejs.org/dist/latest/ changelog @ https://github.com/nodejs/node/blob/master/CHANGELOG.md#2015-12-16-version-530-stable-cjihrig … something here about notable changes
+> v5.8.0 of @nodejs is out: https://nodejs.org/en/blog/release/v5.8.0/ … something here about notable changes
 
 ### 16. Cleanup
 

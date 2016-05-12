@@ -20,7 +20,6 @@ else
 
 
 function master() {
-  var i;
   var received = 0;
 
   // Start listening on a socket.
@@ -52,7 +51,7 @@ function master() {
 function worker() {
   // Create udp socket and send packets to master.
   var socket = dgram.createSocket('udp4');
-  var buf = new Buffer('hello world');
+  var buf = Buffer.from('hello world');
 
   // This test is intended to exercise the cluster binding of udp sockets, but
   // since sockets aren't clustered when implicitly bound by at first call of

@@ -6,11 +6,11 @@
 
 #include "src/v8.h"
 
-#include "src/ast.h"
-#include "src/ast-expression-visitor.h"
-#include "src/parser.h"
-#include "src/rewriter.h"
-#include "src/scopes.h"
+#include "src/ast/ast.h"
+#include "src/ast/ast-expression-visitor.h"
+#include "src/ast/scopes.h"
+#include "src/parsing/parser.h"
+#include "src/parsing/rewriter.h"
 #include "test/cctest/cctest.h"
 #include "test/cctest/expression-type-collector.h"
 #include "test/cctest/expression-type-collector-macros.h"
@@ -270,6 +270,33 @@ TEST(VisitExpressions) {
 }
 
 
+TEST(VisitConditional) {
+  v8::V8::Initialize();
+  HandleAndZoneScope handles;
+  ZoneVector<ExpressionTypeEntry> types(handles.main_zone());
+  // Check that traversing the ternary operator works.
+  const char test_function[] =
+      "function foo() {\n"
+      "  var a, b, c;\n"
+      "  var x = a ? b : c;\n"
+      "}\n";
+  CollectTypes(&handles, test_function, &types);
+  CHECK_TYPES_BEGIN {
+    CHECK_EXPR(FunctionLiteral, Bounds::Unbounded()) {
+      CHECK_EXPR(Assignment, Bounds::Unbounded()) {
+        CHECK_VAR(x, Bounds::Unbounded());
+        CHECK_EXPR(Conditional, Bounds::Unbounded()) {
+          CHECK_VAR(a, Bounds::Unbounded());
+          CHECK_VAR(b, Bounds::Unbounded());
+          CHECK_VAR(c, Bounds::Unbounded());
+        }
+      }
+    }
+  }
+  CHECK_TYPES_END
+}
+
+
 TEST(VisitEmptyForStatment) {
   v8::V8::Initialize();
   HandleAndZoneScope handles;
@@ -316,7 +343,6 @@ TEST(VisitThrow) {
   v8::V8::Initialize();
   HandleAndZoneScope handles;
   ZoneVector<ExpressionTypeEntry> types(handles.main_zone());
-  // Check that traversing an empty for statement works.
   const char test_function[] =
       "function foo() {\n"
       "  throw 123;\n"
@@ -337,7 +363,6 @@ TEST(VisitYield) {
   v8::V8::Initialize();
   HandleAndZoneScope handles;
   ZoneVector<ExpressionTypeEntry> types(handles.main_zone());
-  // Check that traversing an empty for statement works.
   const char test_function[] =
       "function* foo() {\n"
       "  yield 123;\n"
@@ -345,7 +370,7 @@ TEST(VisitYield) {
   CollectTypes(&handles, test_function, &types);
   CHECK_TYPES_BEGIN {
     CHECK_EXPR(FunctionLiteral, Bounds::Unbounded()) {
-      // Generator function yields generator on entry.
+      // Implicit initial yield
       CHECK_EXPR(Yield, Bounds::Unbounded()) {
         CHECK_VAR(.generator_object, Bounds::Unbounded());
         CHECK_EXPR(Assignment, Bounds::Unbounded()) {
@@ -353,15 +378,19 @@ TEST(VisitYield) {
           CHECK_EXPR(CallRuntime, Bounds::Unbounded());
         }
       }
-      // Then yields undefined.
+      // Explicit yield
       CHECK_EXPR(Yield, Bounds::Unbounded()) {
         CHECK_VAR(.generator_object, Bounds::Unbounded());
         CHECK_EXPR(Literal, Bounds::Unbounded());
       }
-      // Then yields 123.
+      // Implicit final yield
       CHECK_EXPR(Yield, Bounds::Unbounded()) {
         CHECK_VAR(.generator_object, Bounds::Unbounded());
         CHECK_EXPR(Literal, Bounds::Unbounded());
+      }
+      // Implicit finally clause
+      CHECK_EXPR(CallRuntime, Bounds::Unbounded()) {
+        CHECK_VAR(.generator_object, Bounds::Unbounded());
       }
     }
   }
@@ -373,7 +402,6 @@ TEST(VisitSkipping) {
   v8::V8::Initialize();
   HandleAndZoneScope handles;
   ZoneVector<ExpressionTypeEntry> types(handles.main_zone());
-  // Check that traversing an empty for statement works.
   const char test_function[] =
       "function foo(x) {\n"
       "  return (x + x) + 1;\n"

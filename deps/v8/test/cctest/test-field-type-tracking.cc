@@ -12,6 +12,7 @@
 #include "src/compilation-cache.h"
 #include "src/execution.h"
 #include "src/factory.h"
+#include "src/field-type.h"
 #include "src/global-handles.h"
 #include "src/ic/stub-cache.h"
 #include "src/macro-assembler.h"
@@ -88,7 +89,7 @@ class Expectations {
   PropertyType types_[MAX_PROPERTIES];
   PropertyAttributes attributes_[MAX_PROPERTIES];
   Representation representations_[MAX_PROPERTIES];
-  // HeapType for kField, value for DATA_CONSTANT and getter for
+  // FieldType for kField, value for DATA_CONSTANT and getter for
   // ACCESSOR_CONSTANT.
   Handle<Object> values_[MAX_PROPERTIES];
   // Setter for ACCESSOR_CONSTANT.
@@ -101,7 +102,7 @@ class Expectations {
 
   void Init(int index, PropertyType type, PropertyAttributes attributes,
             Representation representation, Handle<Object> value) {
-    DCHECK(index < MAX_PROPERTIES);
+    CHECK(index < MAX_PROPERTIES);
     types_[index] = type;
     attributes_[index] = attributes;
     representations_[index] = representation;
@@ -142,25 +143,25 @@ class Expectations {
     os << "\n";
   }
 
-  Handle<HeapType> GetFieldType(int index) {
+  Handle<FieldType> GetFieldType(int index) {
     CHECK(index < MAX_PROPERTIES);
     CHECK(types_[index] == DATA || types_[index] == ACCESSOR);
-    return Handle<HeapType>::cast(values_[index]);
+    return Handle<FieldType>::cast(values_[index]);
   }
 
   void SetDataField(int index, PropertyAttributes attrs,
-                    Representation representation, Handle<HeapType> value) {
+                    Representation representation, Handle<FieldType> value) {
     Init(index, DATA, attrs, representation, value);
   }
 
   void SetDataField(int index, Representation representation,
-                    Handle<HeapType> value) {
+                    Handle<FieldType> value) {
     SetDataField(index, attributes_[index], representation, value);
   }
 
   void SetAccessorField(int index, PropertyAttributes attrs) {
     Init(index, ACCESSOR, attrs, Representation::Tagged(),
-         HeapType::Any(isolate_));
+         FieldType::Any(isolate_));
   }
 
   void SetAccessorField(int index) {
@@ -216,7 +217,7 @@ class Expectations {
     CHECK(index < number_of_properties_);
     representations_[index] = Representation::Tagged();
     if (types_[index] == DATA || types_[index] == ACCESSOR) {
-      values_[index] = HeapType::Any(isolate_);
+      values_[index] = FieldType::Any(isolate_);
     }
   }
 
@@ -232,8 +233,8 @@ class Expectations {
     switch (type) {
       case DATA:
       case ACCESSOR: {
-        HeapType* type = descriptors->GetFieldType(descriptor);
-        return HeapType::cast(expected_value)->Equals(type);
+        FieldType* type = descriptors->GetFieldType(descriptor);
+        return FieldType::cast(expected_value) == type;
       }
 
       case DATA_CONSTANT:
@@ -280,7 +281,7 @@ class Expectations {
 
   Handle<Map> AddDataField(Handle<Map> map, PropertyAttributes attributes,
                            Representation representation,
-                           Handle<HeapType> heap_type) {
+                           Handle<FieldType> heap_type) {
     CHECK_EQ(number_of_properties_, map->NumberOfOwnDescriptors());
     int property_index = number_of_properties_++;
     SetDataField(property_index, attributes, representation, heap_type);
@@ -306,7 +307,7 @@ class Expectations {
   Handle<Map> TransitionToDataField(Handle<Map> map,
                                     PropertyAttributes attributes,
                                     Representation representation,
-                                    Handle<HeapType> heap_type,
+                                    Handle<FieldType> heap_type,
                                     Handle<Object> value) {
     CHECK_EQ(number_of_properties_, map->NumberOfOwnDescriptors());
     int property_index = number_of_properties_++;
@@ -332,7 +333,7 @@ class Expectations {
   Handle<Map> FollowDataTransition(Handle<Map> map,
                                    PropertyAttributes attributes,
                                    Representation representation,
-                                   Handle<HeapType> heap_type) {
+                                   Handle<FieldType> heap_type) {
     CHECK_EQ(number_of_properties_, map->NumberOfOwnDescriptors());
     int property_index = number_of_properties_++;
     SetDataField(property_index, attributes, representation, heap_type);
@@ -421,8 +422,8 @@ TEST(ReconfigureAccessorToNonExistingDataField) {
   CcTest::InitializeVM();
   v8::HandleScope scope(CcTest::isolate());
   Isolate* isolate = CcTest::i_isolate();
-  Handle<HeapType> any_type = HeapType::Any(isolate);
-  Handle<HeapType> none_type = HeapType::None(isolate);
+  Handle<FieldType> any_type = FieldType::Any(isolate);
+  Handle<FieldType> none_type = FieldType::None(isolate);
   Handle<AccessorPair> pair = CreateAccessorPair(true, true);
 
   Expectations expectations(isolate);
@@ -533,12 +534,12 @@ TEST(ReconfigureAccessorToNonExistingDataFieldHeavy) {
 //
 static void TestGeneralizeRepresentation(
     int detach_property_at_index, int property_index,
-    Representation from_representation, Handle<HeapType> from_type,
-    Representation to_representation, Handle<HeapType> to_type,
-    Representation expected_representation, Handle<HeapType> expected_type,
+    Representation from_representation, Handle<FieldType> from_type,
+    Representation to_representation, Handle<FieldType> to_type,
+    Representation expected_representation, Handle<FieldType> expected_type,
     bool expected_deprecation, bool expected_field_type_dependency) {
   Isolate* isolate = CcTest::i_isolate();
-  Handle<HeapType> any_type = HeapType::Any(isolate);
+  Handle<FieldType> any_type = FieldType::Any(isolate);
 
   CHECK(detach_property_at_index >= -1 &&
         detach_property_at_index < kPropCount);
@@ -621,6 +622,17 @@ static void TestGeneralizeRepresentation(
     CHECK_EQ(expected_field_type_dependency, info.dependencies()->HasAborted());
   }
 
+  {
+    // Check that all previous maps are not stable.
+    Map* tmp = *new_map;
+    while (true) {
+      Object* back = tmp->GetBackPointer();
+      if (back->IsUndefined()) break;
+      tmp = Map::cast(back);
+      CHECK(!tmp->is_stable());
+    }
+  }
+
   info.dependencies()->Rollback();  // Properly cleanup compilation info.
 
   // Update all deprecated maps and check that they are now the same.
@@ -628,11 +640,10 @@ static void TestGeneralizeRepresentation(
   CHECK_EQ(*new_map, *updated_map);
 }
 
-
 static void TestGeneralizeRepresentation(
-    Representation from_representation, Handle<HeapType> from_type,
-    Representation to_representation, Handle<HeapType> to_type,
-    Representation expected_representation, Handle<HeapType> expected_type,
+    Representation from_representation, Handle<FieldType> from_type,
+    Representation to_representation, Handle<FieldType> to_type,
+    Representation expected_representation, Handle<FieldType> expected_type,
     bool expected_deprecation, bool expected_field_type_dependency) {
   // Check the cases when the map being reconfigured is a part of the
   // transition tree.
@@ -659,19 +670,18 @@ static void TestGeneralizeRepresentation(
 
     // Check that reconfiguration to the very same field works correctly.
     Representation representation = from_representation;
-    Handle<HeapType> type = from_type;
+    Handle<FieldType> type = from_type;
     TestGeneralizeRepresentation(-1, 2, representation, type, representation,
                                  type, representation, type, false, false);
   }
 }
 
-
 static void TestGeneralizeRepresentation(Representation from_representation,
-                                         Handle<HeapType> from_type,
+                                         Handle<FieldType> from_type,
                                          Representation to_representation,
-                                         Handle<HeapType> to_type,
+                                         Handle<FieldType> to_type,
                                          Representation expected_representation,
-                                         Handle<HeapType> expected_type) {
+                                         Handle<FieldType> expected_type) {
   const bool expected_deprecation = true;
   const bool expected_field_type_dependency = false;
 
@@ -681,11 +691,10 @@ static void TestGeneralizeRepresentation(Representation from_representation,
       expected_field_type_dependency);
 }
 
-
 static void TestGeneralizeRepresentationTrivial(
-    Representation from_representation, Handle<HeapType> from_type,
-    Representation to_representation, Handle<HeapType> to_type,
-    Representation expected_representation, Handle<HeapType> expected_type,
+    Representation from_representation, Handle<FieldType> from_type,
+    Representation to_representation, Handle<FieldType> to_type,
+    Representation expected_representation, Handle<FieldType> expected_type,
     bool expected_field_type_dependency = true) {
   const bool expected_deprecation = false;
 
@@ -700,7 +709,7 @@ TEST(GeneralizeRepresentationSmiToDouble) {
   CcTest::InitializeVM();
   v8::HandleScope scope(CcTest::isolate());
   Isolate* isolate = CcTest::i_isolate();
-  Handle<HeapType> any_type = HeapType::Any(isolate);
+  Handle<FieldType> any_type = FieldType::Any(isolate);
 
   TestGeneralizeRepresentation(Representation::Smi(), any_type,
                                Representation::Double(), any_type,
@@ -712,9 +721,9 @@ TEST(GeneralizeRepresentationSmiToTagged) {
   CcTest::InitializeVM();
   v8::HandleScope scope(CcTest::isolate());
   Isolate* isolate = CcTest::i_isolate();
-  Handle<HeapType> any_type = HeapType::Any(isolate);
-  Handle<HeapType> value_type =
-      HeapType::Class(Map::Create(isolate, 0), isolate);
+  Handle<FieldType> any_type = FieldType::Any(isolate);
+  Handle<FieldType> value_type =
+      FieldType::Class(Map::Create(isolate, 0), isolate);
 
   TestGeneralizeRepresentation(Representation::Smi(), any_type,
                                Representation::HeapObject(), value_type,
@@ -726,9 +735,9 @@ TEST(GeneralizeRepresentationDoubleToTagged) {
   CcTest::InitializeVM();
   v8::HandleScope scope(CcTest::isolate());
   Isolate* isolate = CcTest::i_isolate();
-  Handle<HeapType> any_type = HeapType::Any(isolate);
-  Handle<HeapType> value_type =
-      HeapType::Class(Map::Create(isolate, 0), isolate);
+  Handle<FieldType> any_type = FieldType::Any(isolate);
+  Handle<FieldType> value_type =
+      FieldType::Class(Map::Create(isolate, 0), isolate);
 
   TestGeneralizeRepresentation(Representation::Double(), any_type,
                                Representation::HeapObject(), value_type,
@@ -740,9 +749,9 @@ TEST(GeneralizeRepresentationHeapObjectToTagged) {
   CcTest::InitializeVM();
   v8::HandleScope scope(CcTest::isolate());
   Isolate* isolate = CcTest::i_isolate();
-  Handle<HeapType> any_type = HeapType::Any(isolate);
-  Handle<HeapType> value_type =
-      HeapType::Class(Map::Create(isolate, 0), isolate);
+  Handle<FieldType> any_type = FieldType::Any(isolate);
+  Handle<FieldType> value_type =
+      FieldType::Class(Map::Create(isolate, 0), isolate);
 
   TestGeneralizeRepresentation(Representation::HeapObject(), value_type,
                                Representation::Smi(), any_type,
@@ -754,29 +763,23 @@ TEST(GeneralizeRepresentationHeapObjectToHeapObject) {
   CcTest::InitializeVM();
   v8::HandleScope scope(CcTest::isolate());
   Isolate* isolate = CcTest::i_isolate();
-  Handle<HeapType> any_type = HeapType::Any(isolate);
+  Handle<FieldType> any_type = FieldType::Any(isolate);
 
-  const int kMaxClassesPerFieldType = 1;
-  Handle<HeapType> current_type =
-      HeapType::Class(Map::Create(isolate, 0), isolate);
+  Handle<FieldType> current_type =
+      FieldType::Class(Map::Create(isolate, 0), isolate);
 
-  for (int i = 0; i < kMaxClassesPerFieldType; i++) {
-    Handle<HeapType> new_type =
-        HeapType::Class(Map::Create(isolate, 0), isolate);
+  Handle<FieldType> new_type =
+      FieldType::Class(Map::Create(isolate, 0), isolate);
 
-    Handle<HeapType> expected_type =
-        (i < kMaxClassesPerFieldType - 1)
-            ? HeapType::Union(current_type, new_type, isolate)
-            : any_type;
+  Handle<FieldType> expected_type = any_type;
 
     TestGeneralizeRepresentationTrivial(
         Representation::HeapObject(), current_type,
         Representation::HeapObject(), new_type, Representation::HeapObject(),
         expected_type);
     current_type = expected_type;
-  }
 
-  Handle<HeapType> new_type = HeapType::Class(Map::Create(isolate, 0), isolate);
+    new_type = FieldType::Class(Map::Create(isolate, 0), isolate);
 
   TestGeneralizeRepresentationTrivial(
       Representation::HeapObject(), any_type, Representation::HeapObject(),
@@ -788,8 +791,8 @@ TEST(GeneralizeRepresentationNoneToSmi) {
   CcTest::InitializeVM();
   v8::HandleScope scope(CcTest::isolate());
   Isolate* isolate = CcTest::i_isolate();
-  Handle<HeapType> none_type = HeapType::None(isolate);
-  Handle<HeapType> any_type = HeapType::Any(isolate);
+  Handle<FieldType> none_type = FieldType::None(isolate);
+  Handle<FieldType> any_type = FieldType::Any(isolate);
 
   // None -> Smi representation change is trivial.
   TestGeneralizeRepresentationTrivial(Representation::None(), none_type,
@@ -802,8 +805,8 @@ TEST(GeneralizeRepresentationNoneToDouble) {
   CcTest::InitializeVM();
   v8::HandleScope scope(CcTest::isolate());
   Isolate* isolate = CcTest::i_isolate();
-  Handle<HeapType> none_type = HeapType::None(isolate);
-  Handle<HeapType> any_type = HeapType::Any(isolate);
+  Handle<FieldType> none_type = FieldType::None(isolate);
+  Handle<FieldType> any_type = FieldType::Any(isolate);
 
   // None -> Double representation change is NOT trivial.
   TestGeneralizeRepresentation(Representation::None(), none_type,
@@ -816,9 +819,9 @@ TEST(GeneralizeRepresentationNoneToHeapObject) {
   CcTest::InitializeVM();
   v8::HandleScope scope(CcTest::isolate());
   Isolate* isolate = CcTest::i_isolate();
-  Handle<HeapType> none_type = HeapType::None(isolate);
-  Handle<HeapType> value_type =
-      HeapType::Class(Map::Create(isolate, 0), isolate);
+  Handle<FieldType> none_type = FieldType::None(isolate);
+  Handle<FieldType> value_type =
+      FieldType::Class(Map::Create(isolate, 0), isolate);
 
   // None -> HeapObject representation change is trivial.
   TestGeneralizeRepresentationTrivial(Representation::None(), none_type,
@@ -831,8 +834,8 @@ TEST(GeneralizeRepresentationNoneToTagged) {
   CcTest::InitializeVM();
   v8::HandleScope scope(CcTest::isolate());
   Isolate* isolate = CcTest::i_isolate();
-  Handle<HeapType> none_type = HeapType::None(isolate);
-  Handle<HeapType> any_type = HeapType::Any(isolate);
+  Handle<FieldType> none_type = FieldType::None(isolate);
+  Handle<FieldType> any_type = FieldType::Any(isolate);
 
   // None -> HeapObject representation change is trivial.
   TestGeneralizeRepresentationTrivial(Representation::None(), none_type,
@@ -850,7 +853,7 @@ TEST(GeneralizeRepresentationWithAccessorProperties) {
   CcTest::InitializeVM();
   v8::HandleScope scope(CcTest::isolate());
   Isolate* isolate = CcTest::i_isolate();
-  Handle<HeapType> any_type = HeapType::Any(isolate);
+  Handle<FieldType> any_type = FieldType::Any(isolate);
   Handle<AccessorPair> pair = CreateAccessorPair(true, true);
 
   const int kAccessorProp = kPropCount / 2;
@@ -921,9 +924,9 @@ TEST(GeneralizeRepresentationWithAccessorProperties) {
 // where "p2A" and "p2B" differ only in the attributes.
 //
 static void TestReconfigureDataFieldAttribute_GeneralizeRepresentation(
-    Representation from_representation, Handle<HeapType> from_type,
-    Representation to_representation, Handle<HeapType> to_type,
-    Representation expected_representation, Handle<HeapType> expected_type) {
+    Representation from_representation, Handle<FieldType> from_type,
+    Representation to_representation, Handle<FieldType> to_type,
+    Representation expected_representation, Handle<FieldType> expected_type) {
   Isolate* isolate = CcTest::i_isolate();
 
   Expectations expectations(isolate);
@@ -1005,9 +1008,9 @@ static void TestReconfigureDataFieldAttribute_GeneralizeRepresentation(
 // where "p2A" and "p2B" differ only in the attributes.
 //
 static void TestReconfigureDataFieldAttribute_GeneralizeRepresentationTrivial(
-    Representation from_representation, Handle<HeapType> from_type,
-    Representation to_representation, Handle<HeapType> to_type,
-    Representation expected_representation, Handle<HeapType> expected_type,
+    Representation from_representation, Handle<FieldType> from_type,
+    Representation to_representation, Handle<FieldType> to_type,
+    Representation expected_representation, Handle<FieldType> expected_type,
     bool expected_field_type_dependency = true) {
   Isolate* isolate = CcTest::i_isolate();
 
@@ -1085,7 +1088,7 @@ TEST(ReconfigureDataFieldAttribute_GeneralizeRepresentationSmiToDouble) {
   CcTest::InitializeVM();
   v8::HandleScope scope(CcTest::isolate());
   Isolate* isolate = CcTest::i_isolate();
-  Handle<HeapType> any_type = HeapType::Any(isolate);
+  Handle<FieldType> any_type = FieldType::Any(isolate);
 
   TestReconfigureDataFieldAttribute_GeneralizeRepresentation(
       Representation::Smi(), any_type, Representation::Double(), any_type,
@@ -1097,9 +1100,9 @@ TEST(ReconfigureDataFieldAttribute_GeneralizeRepresentationSmiToTagged) {
   CcTest::InitializeVM();
   v8::HandleScope scope(CcTest::isolate());
   Isolate* isolate = CcTest::i_isolate();
-  Handle<HeapType> any_type = HeapType::Any(isolate);
-  Handle<HeapType> value_type =
-      HeapType::Class(Map::Create(isolate, 0), isolate);
+  Handle<FieldType> any_type = FieldType::Any(isolate);
+  Handle<FieldType> value_type =
+      FieldType::Class(Map::Create(isolate, 0), isolate);
 
   TestReconfigureDataFieldAttribute_GeneralizeRepresentation(
       Representation::Smi(), any_type, Representation::HeapObject(), value_type,
@@ -1111,9 +1114,9 @@ TEST(ReconfigureDataFieldAttribute_GeneralizeRepresentationDoubleToTagged) {
   CcTest::InitializeVM();
   v8::HandleScope scope(CcTest::isolate());
   Isolate* isolate = CcTest::i_isolate();
-  Handle<HeapType> any_type = HeapType::Any(isolate);
-  Handle<HeapType> value_type =
-      HeapType::Class(Map::Create(isolate, 0), isolate);
+  Handle<FieldType> any_type = FieldType::Any(isolate);
+  Handle<FieldType> value_type =
+      FieldType::Class(Map::Create(isolate, 0), isolate);
 
   TestReconfigureDataFieldAttribute_GeneralizeRepresentation(
       Representation::Double(), any_type, Representation::HeapObject(),
@@ -1125,29 +1128,22 @@ TEST(ReconfigureDataFieldAttribute_GeneralizeRepresentationHeapObjToHeapObj) {
   CcTest::InitializeVM();
   v8::HandleScope scope(CcTest::isolate());
   Isolate* isolate = CcTest::i_isolate();
-  Handle<HeapType> any_type = HeapType::Any(isolate);
+  Handle<FieldType> any_type = FieldType::Any(isolate);
 
-  const int kMaxClassesPerFieldType = 1;
-  Handle<HeapType> current_type =
-      HeapType::Class(Map::Create(isolate, 0), isolate);
+  Handle<FieldType> current_type =
+      FieldType::Class(Map::Create(isolate, 0), isolate);
 
-  for (int i = 0; i < kMaxClassesPerFieldType; i++) {
-    Handle<HeapType> new_type =
-        HeapType::Class(Map::Create(isolate, 0), isolate);
+  Handle<FieldType> new_type =
+      FieldType::Class(Map::Create(isolate, 0), isolate);
 
-    Handle<HeapType> expected_type =
-        (i < kMaxClassesPerFieldType - 1)
-            ? HeapType::Union(current_type, new_type, isolate)
-            : any_type;
+  Handle<FieldType> expected_type = any_type;
 
-    TestReconfigureDataFieldAttribute_GeneralizeRepresentationTrivial(
-        Representation::HeapObject(), current_type,
-        Representation::HeapObject(), new_type, Representation::HeapObject(),
-        expected_type);
-    current_type = expected_type;
-  }
+  TestReconfigureDataFieldAttribute_GeneralizeRepresentationTrivial(
+      Representation::HeapObject(), current_type, Representation::HeapObject(),
+      new_type, Representation::HeapObject(), expected_type);
+  current_type = expected_type;
 
-  Handle<HeapType> new_type = HeapType::Class(Map::Create(isolate, 0), isolate);
+  new_type = FieldType::Class(Map::Create(isolate, 0), isolate);
 
   TestReconfigureDataFieldAttribute_GeneralizeRepresentationTrivial(
       Representation::HeapObject(), any_type, Representation::HeapObject(),
@@ -1159,9 +1155,9 @@ TEST(ReconfigureDataFieldAttribute_GeneralizeRepresentationHeapObjectToTagged) {
   CcTest::InitializeVM();
   v8::HandleScope scope(CcTest::isolate());
   Isolate* isolate = CcTest::i_isolate();
-  Handle<HeapType> any_type = HeapType::Any(isolate);
-  Handle<HeapType> value_type =
-      HeapType::Class(Map::Create(isolate, 0), isolate);
+  Handle<FieldType> any_type = FieldType::Any(isolate);
+  Handle<FieldType> value_type =
+      FieldType::Class(Map::Create(isolate, 0), isolate);
 
   TestReconfigureDataFieldAttribute_GeneralizeRepresentation(
       Representation::HeapObject(), value_type, Representation::Smi(), any_type,
@@ -1257,7 +1253,7 @@ template <typename TestConfig, typename Checker>
 static void TestReconfigureProperty_CustomPropertyAfterTargetMap(
     TestConfig& config, Checker& checker) {
   Isolate* isolate = CcTest::i_isolate();
-  Handle<HeapType> any_type = HeapType::Any(isolate);
+  Handle<FieldType> any_type = FieldType::Any(isolate);
 
   const int kCustomPropIndex = kPropCount - 2;
   Expectations expectations(isolate);
@@ -1380,9 +1376,10 @@ TEST(ReconfigureDataFieldAttribute_DataConstantToDataFieldAfterTargetMap) {
 
     void UpdateExpectations(int property_index, Expectations& expectations) {
       Isolate* isolate = CcTest::i_isolate();
-      Handle<HeapType> any_type = HeapType::Any(isolate);
+      Handle<FieldType> function_type =
+          FieldType::Class(isolate->sloppy_function_map(), isolate);
       expectations.SetDataField(property_index, Representation::HeapObject(),
-                                any_type);
+                                function_type);
     }
   };
 
@@ -1511,7 +1508,7 @@ TEST(ReconfigureDataFieldAttribute_AccConstantToDataFieldAfterTargetMap) {
         return expectations.AddAccessorConstant(map, NONE, pair_);
       } else {
         Isolate* isolate = CcTest::i_isolate();
-        Handle<HeapType> any_type = HeapType::Any(isolate);
+        Handle<FieldType> any_type = FieldType::Any(isolate);
         return expectations.AddDataField(map, NONE, Representation::Smi(),
                                          any_type);
       }
@@ -1535,7 +1532,7 @@ TEST(ReconfigurePropertySplitMapTransitionsOverflow) {
   CcTest::InitializeVM();
   v8::HandleScope scope(CcTest::isolate());
   Isolate* isolate = CcTest::i_isolate();
-  Handle<HeapType> any_type = HeapType::Any(isolate);
+  Handle<FieldType> any_type = FieldType::Any(isolate);
 
   Expectations expectations(isolate);
 
@@ -1626,9 +1623,9 @@ TEST(ReconfigurePropertySplitMapTransitionsOverflow) {
 template <typename TestConfig>
 static void TestGeneralizeRepresentationWithSpecialTransition(
     TestConfig& config, Representation from_representation,
-    Handle<HeapType> from_type, Representation to_representation,
-    Handle<HeapType> to_type, Representation expected_representation,
-    Handle<HeapType> expected_type) {
+    Handle<FieldType> from_type, Representation to_representation,
+    Handle<FieldType> to_type, Representation expected_representation,
+    Handle<FieldType> expected_type) {
   Isolate* isolate = CcTest::i_isolate();
 
   Expectations expectations(isolate);
@@ -1718,9 +1715,9 @@ TEST(ElementsKindTransitionFromMapOwningDescriptor) {
   CcTest::InitializeVM();
   v8::HandleScope scope(CcTest::isolate());
   Isolate* isolate = CcTest::i_isolate();
-  Handle<HeapType> any_type = HeapType::Any(isolate);
-  Handle<HeapType> value_type =
-      HeapType::Class(Map::Create(isolate, 0), isolate);
+  Handle<FieldType> any_type = FieldType::Any(isolate);
+  Handle<FieldType> value_type =
+      FieldType::Class(Map::Create(isolate, 0), isolate);
 
   struct TestConfig {
     Handle<Map> Transition(Handle<Map> map) {
@@ -1742,14 +1739,14 @@ TEST(ElementsKindTransitionFromMapNotOwningDescriptor) {
   CcTest::InitializeVM();
   v8::HandleScope scope(CcTest::isolate());
   Isolate* isolate = CcTest::i_isolate();
-  Handle<HeapType> any_type = HeapType::Any(isolate);
-  Handle<HeapType> value_type =
-      HeapType::Class(Map::Create(isolate, 0), isolate);
+  Handle<FieldType> any_type = FieldType::Any(isolate);
+  Handle<FieldType> value_type =
+      FieldType::Class(Map::Create(isolate, 0), isolate);
 
   struct TestConfig {
     Handle<Map> Transition(Handle<Map> map) {
       Isolate* isolate = CcTest::i_isolate();
-      Handle<HeapType> any_type = HeapType::Any(isolate);
+      Handle<FieldType> any_type = FieldType::Any(isolate);
 
       // Add one more transition to |map| in order to prevent descriptors
       // ownership.
@@ -1777,9 +1774,9 @@ TEST(ForObservedTransitionFromMapOwningDescriptor) {
   CcTest::InitializeVM();
   v8::HandleScope scope(CcTest::isolate());
   Isolate* isolate = CcTest::i_isolate();
-  Handle<HeapType> any_type = HeapType::Any(isolate);
-  Handle<HeapType> value_type =
-      HeapType::Class(Map::Create(isolate, 0), isolate);
+  Handle<FieldType> any_type = FieldType::Any(isolate);
+  Handle<FieldType> value_type =
+      FieldType::Class(Map::Create(isolate, 0), isolate);
 
   struct TestConfig {
     Handle<Map> Transition(Handle<Map> map) {
@@ -1800,14 +1797,14 @@ TEST(ForObservedTransitionFromMapNotOwningDescriptor) {
   CcTest::InitializeVM();
   v8::HandleScope scope(CcTest::isolate());
   Isolate* isolate = CcTest::i_isolate();
-  Handle<HeapType> any_type = HeapType::Any(isolate);
-  Handle<HeapType> value_type =
-      HeapType::Class(Map::Create(isolate, 0), isolate);
+  Handle<FieldType> any_type = FieldType::Any(isolate);
+  Handle<FieldType> value_type =
+      FieldType::Class(Map::Create(isolate, 0), isolate);
 
   struct TestConfig {
     Handle<Map> Transition(Handle<Map> map) {
       Isolate* isolate = CcTest::i_isolate();
-      Handle<HeapType> any_type = HeapType::Any(isolate);
+      Handle<FieldType> any_type = FieldType::Any(isolate);
 
       // Add one more transition to |map| in order to prevent descriptors
       // ownership.
@@ -1835,9 +1832,9 @@ TEST(PrototypeTransitionFromMapOwningDescriptor) {
   v8::HandleScope scope(CcTest::isolate());
   Isolate* isolate = CcTest::i_isolate();
 
-  Handle<HeapType> any_type = HeapType::Any(isolate);
-  Handle<HeapType> value_type =
-      HeapType::Class(Map::Create(isolate, 0), isolate);
+  Handle<FieldType> any_type = FieldType::Any(isolate);
+  Handle<FieldType> value_type =
+      FieldType::Class(Map::Create(isolate, 0), isolate);
 
   struct TestConfig {
     Handle<JSObject> prototype_;
@@ -1869,9 +1866,9 @@ TEST(PrototypeTransitionFromMapNotOwningDescriptor) {
   v8::HandleScope scope(CcTest::isolate());
   Isolate* isolate = CcTest::i_isolate();
 
-  Handle<HeapType> any_type = HeapType::Any(isolate);
-  Handle<HeapType> value_type =
-      HeapType::Class(Map::Create(isolate, 0), isolate);
+  Handle<FieldType> any_type = FieldType::Any(isolate);
+  Handle<FieldType> value_type =
+      FieldType::Class(Map::Create(isolate, 0), isolate);
 
   struct TestConfig {
     Handle<JSObject> prototype_;
@@ -1884,7 +1881,7 @@ TEST(PrototypeTransitionFromMapNotOwningDescriptor) {
 
     Handle<Map> Transition(Handle<Map> map) {
       Isolate* isolate = CcTest::i_isolate();
-      Handle<HeapType> any_type = HeapType::Any(isolate);
+      Handle<FieldType> any_type = FieldType::Any(isolate);
 
       // Add one more transition to |map| in order to prevent descriptors
       // ownership.
@@ -1916,11 +1913,11 @@ TEST(PrototypeTransitionFromMapNotOwningDescriptor) {
 struct TransitionToDataFieldOperator {
   Representation representation_;
   PropertyAttributes attributes_;
-  Handle<HeapType> heap_type_;
+  Handle<FieldType> heap_type_;
   Handle<Object> value_;
 
   TransitionToDataFieldOperator(Representation representation,
-                                Handle<HeapType> heap_type,
+                                Handle<FieldType> heap_type,
                                 Handle<Object> value,
                                 PropertyAttributes attributes = NONE)
       : representation_(representation),
@@ -1967,11 +1964,11 @@ struct ReconfigureAsDataPropertyOperator {
   int descriptor_;
   Representation representation_;
   PropertyAttributes attributes_;
-  Handle<HeapType> heap_type_;
+  Handle<FieldType> heap_type_;
 
   ReconfigureAsDataPropertyOperator(int descriptor,
                                     Representation representation,
-                                    Handle<HeapType> heap_type,
+                                    Handle<FieldType> heap_type,
                                     PropertyAttributes attributes = NONE)
       : descriptor_(descriptor),
         representation_(representation),
@@ -2007,10 +2004,10 @@ struct FieldGeneralizationChecker {
   int descriptor_;
   Representation representation_;
   PropertyAttributes attributes_;
-  Handle<HeapType> heap_type_;
+  Handle<FieldType> heap_type_;
 
   FieldGeneralizationChecker(int descriptor, Representation representation,
-                             Handle<HeapType> heap_type,
+                             Handle<FieldType> heap_type,
                              PropertyAttributes attributes = NONE)
       : descriptor_(descriptor),
         representation_(representation),
@@ -2073,7 +2070,7 @@ template <typename TransitionOp1, typename TransitionOp2, typename Checker>
 static void TestTransitionTo(TransitionOp1& transition_op1,
                              TransitionOp2& transition_op2, Checker& checker) {
   Isolate* isolate = CcTest::i_isolate();
-  Handle<HeapType> any_type = HeapType::Any(isolate);
+  Handle<FieldType> any_type = FieldType::Any(isolate);
 
   Expectations expectations(isolate);
 
@@ -2101,7 +2098,7 @@ TEST(TransitionDataFieldToDataField) {
   CcTest::InitializeVM();
   v8::HandleScope scope(CcTest::isolate());
   Isolate* isolate = CcTest::i_isolate();
-  Handle<HeapType> any_type = HeapType::Any(isolate);
+  Handle<FieldType> any_type = FieldType::Any(isolate);
 
   Handle<Object> value1 = handle(Smi::FromInt(0), isolate);
   TransitionToDataFieldOperator transition_op1(Representation::Smi(), any_type,
@@ -2136,7 +2133,8 @@ TEST(TransitionDataConstantToAnotherDataConstant) {
   v8::HandleScope scope(CcTest::isolate());
   Isolate* isolate = CcTest::i_isolate();
   Factory* factory = isolate->factory();
-  Handle<HeapType> any_type = HeapType::Any(isolate);
+  Handle<FieldType> function_type =
+      FieldType::Class(isolate->sloppy_function_map(), isolate);
 
   Handle<JSFunction> js_func1 = factory->NewFunction(factory->empty_string());
   TransitionToDataConstantOperator transition_op1(js_func1);
@@ -2144,8 +2142,8 @@ TEST(TransitionDataConstantToAnotherDataConstant) {
   Handle<JSFunction> js_func2 = factory->NewFunction(factory->empty_string());
   TransitionToDataConstantOperator transition_op2(js_func2);
 
-  FieldGeneralizationChecker checker(kPropCount - 1,
-                                     Representation::HeapObject(), any_type);
+  FieldGeneralizationChecker checker(
+      kPropCount - 1, Representation::HeapObject(), function_type);
   TestTransitionTo(transition_op1, transition_op2, checker);
 }
 
@@ -2155,7 +2153,7 @@ TEST(TransitionDataConstantToDataField) {
   v8::HandleScope scope(CcTest::isolate());
   Isolate* isolate = CcTest::i_isolate();
   Factory* factory = isolate->factory();
-  Handle<HeapType> any_type = HeapType::Any(isolate);
+  Handle<FieldType> any_type = FieldType::Any(isolate);
 
   Handle<JSFunction> js_func1 = factory->NewFunction(factory->empty_string());
   TransitionToDataConstantOperator transition_op1(js_func1);

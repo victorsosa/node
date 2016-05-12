@@ -57,18 +57,18 @@ for (var i = 0; i < 10; i++)
   getall();
 
 function afterGC() {
-  countGC ++;
+  countGC++;
 }
 
 var timer;
 function statusLater() {
-  gc();
+  global.gc();
   if (timer) clearTimeout(timer);
   timer = setTimeout(status, 1);
 }
 
 function status() {
-  gc();
+  global.gc();
   console.log('Done: %d/%d', done, todo);
   console.log('Collected: %d/%d', countGC, count);
   if (done === todo) {
