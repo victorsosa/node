@@ -1023,7 +1023,7 @@ Buffer.from(Buffer.allocUnsafe(0), 0, 0);
 [ 'utf9',
   'utf-7',
   'Unicode-FTW',
-  'new gnu gun'  ].forEach(function(enc) {
+  'new gnu gun' ].forEach(function(enc) {
     assert.equal(Buffer.isEncoding(enc), false);
   });
 
@@ -1364,7 +1364,7 @@ if (common.hasCrypto) {
     crypto.createHash('sha1').update(b2).digest('hex')
   );
 } else {
-  console.log('1..0 # Skipped: missing crypto');
+  common.skip('missing crypto');
 }
 
 // Test Compare

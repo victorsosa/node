@@ -82,16 +82,11 @@ function bad() {
 bad();
 
 $ env NODE_DEBUG=fs node script.js
-fs.js:66
-        throw err;
-              ^
-Error: EISDIR, read
-    at rethrow (fs.js:61:21)
-    at maybeCallback (fs.js:79:42)
-    at Object.fs.readFile (fs.js:153:18)
-    at bad (/path/to/script.js:2:17)
-    at Object.<anonymous> (/path/to/script.js:5:1)
-    <etc.>
+fs.js:88
+        throw backtrace;
+        ^
+Error: EISDIR: illegal operation on a directory, read
+    <stack trace.>
 ```
 
 ## Buffer API
@@ -332,7 +327,7 @@ _Note: Specified file descriptors will not be closed automatically._
 
 ## fs.appendFileSync(file, data[, options])
 
-* `file` {String | Buffer}
+* `file` {String | Buffer | Number} filename or file descriptor
 * `data` {String | Buffer}
 * `options` {Object | String}
   * `encoding` {String | Null} default = `'utf8'`
@@ -753,8 +748,8 @@ An exception occurs if the file does not exist.
 * `'r+'` - Open file for reading and writing.
 An exception occurs if the file does not exist.
 
-* `'rs'` - Open file for reading in synchronous mode. Instructs the operating
-  system to bypass the local file system cache.
+* `'rs+'` - Open file for reading and writing in synchronous mode. Instructs
+  the operating system to bypass the local file system cache.
 
   This is primarily useful for opening files on NFS mounts as it allows you to
   skip the potentially stale local cache. It has a very real impact on I/O
@@ -762,9 +757,6 @@ An exception occurs if the file does not exist.
 
   Note that this doesn't turn `fs.open()` into a synchronous blocking call.
   If that's what you want then you should be using `fs.openSync()`
-
-* `'rs+'` - Open file for reading and writing, telling the OS to open it
-  synchronously. See notes for `'rs'` about using this with caution.
 
 * `'w'` - Open file for writing.
 The file is created (if it does not exist) or truncated (if it exists).
